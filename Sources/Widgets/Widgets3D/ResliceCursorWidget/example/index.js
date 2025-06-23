@@ -17,6 +17,7 @@ import vtkOutlineFilter from '@kitware/vtk.js/Filters/General/OutlineFilter';
 import vtkOrientationMarkerWidget from '@kitware/vtk.js/Interaction/Widgets/OrientationMarkerWidget';
 import vtkResliceCursorWidget from '@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget';
 import vtkWidgetManager from '@kitware/vtk.js/Widgets/Core/WidgetManager';
+import vtkLineWidget from '@kitware/vtk.js/Widgets/Widgets3D/LineWidget';
 import vtkSphereSource from '@kitware/vtk.js/Filters/Sources/SphereSource';
 import { CaptureOn } from '@kitware/vtk.js/Widgets/Core/WidgetManager/Constants';
 import vtkITKHelper from '@kitware/vtk.js/Common/DataModel/ITKHelper';
@@ -43,6 +44,7 @@ const viewAttributes = [];
 window.va = viewAttributes;
 const widget = vtkResliceCursorWidget.newInstance();
 window.widget = widget;
+const measureWidgets = [];
 const widgetState = widget.getWidgetState();
 // Set size in CSS pixel space because scaleInPixels defaults to true
 widgetState
@@ -82,6 +84,8 @@ const checkboxShowRotation = document.getElementById('checkboxShowRotation');
 const checkboxRotation = document.getElementById('checkboxRotation');
 const checkboxOrthogonality = document.getElementById('checkboxOrthogonality');
 const buttonPanZoom = document.getElementById('buttonPanZoom');
+const buttonMeasure = document.getElementById('buttonMeasure');
+const measureValue = document.getElementById('measureValue');
 // ----------------------------------------------------------------------------
 // Setup rendering code
 // ----------------------------------------------------------------------------
@@ -576,5 +580,20 @@ buttonPanZoom.addEventListener('click', () => {
       obj.widgetManager.enablePicking();
       obj.interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
     }
+  });
+});
+
+buttonMeasure.addEventListener('click', () => {
+  // remove existing measurement widgets
+  measureWidgets.forEach((mw) => mw.manager.removeWidget(mw.widget));
+  measureWidgets.length = 0;
+
+  viewAttributes.forEach((obj, i) => {
+    const lineWidget = vtkLineWidget.newInstance();
+    obj.widgetManager.addWidget(lineWidget, xyzToViewType[i]);
+    measureWidgets.push({ manager: obj.widgetManager, widget: lineWidget });
+    lineWidget.onEndInteractionEvent(() => {
+      measureValue.textContent = lineWidget.getDistance().toFixed(2);
+    });
   });
 });
