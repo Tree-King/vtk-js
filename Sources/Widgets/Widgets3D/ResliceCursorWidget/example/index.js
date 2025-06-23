@@ -591,6 +591,7 @@ buttonMeasure.addEventListener('click', () => {
   viewAttributes.forEach((obj, i) => {
     const lineWidget = vtkLineWidget.newInstance();
     obj.widgetManager.addWidget(lineWidget, xyzToViewType[i]);
+    obj.widgetManager.grabFocus(lineWidget);
     measureWidgets.push({ manager: obj.widgetManager, widget: lineWidget });
     lineWidget.onEndInteractionEvent(() => {
       measureValue.textContent = lineWidget.getDistance().toFixed(2);
