@@ -81,6 +81,7 @@ const checkboxTranslation = document.getElementById('checkboxTranslation');
 const checkboxShowRotation = document.getElementById('checkboxShowRotation');
 const checkboxRotation = document.getElementById('checkboxRotation');
 const checkboxOrthogonality = document.getElementById('checkboxOrthogonality');
+const buttonPanZoom = document.getElementById('buttonPanZoom');
 // ----------------------------------------------------------------------------
 // Setup rendering code
 // ----------------------------------------------------------------------------
@@ -557,6 +558,23 @@ checkboxWindowLevel.addEventListener('change', (ev) => {
           ? vtkInteractorStyleImage.newInstance()
           : vtkInteractorStyleTrackballCamera.newInstance()
       );
+    }
+  });
+});
+
+let panZoomMode = false;
+buttonPanZoom.addEventListener('click', () => {
+  panZoomMode = !panZoomMode;
+  buttonPanZoom.textContent = panZoomMode ? 'Exit Pan/Zoom' : 'Pan/Zoom mode';
+  viewAttributes.forEach((obj) => {
+    if (panZoomMode) {
+      obj.widgetManager.disablePicking();
+      obj.interactor.setInteractorStyle(
+        vtkInteractorStyleTrackballCamera.newInstance()
+      );
+    } else {
+      obj.widgetManager.enablePicking();
+      obj.interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
     }
   });
 });
