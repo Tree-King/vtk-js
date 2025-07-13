@@ -1,5 +1,12 @@
 <table>
   <tr>
+    <td>DICOM files:</td>
+    <td colspan="2">
+      <input type="file" id="dicomFiles" multiple />
+      <button id="loadDicom">Load</button>
+    </td>
+  </tr>
+  <tr>
     <td>Allow translation:</td>
     <td>
       <input type="checkbox" id="checkboxTranslation" checked>
@@ -63,6 +70,18 @@
     <td>Window Level:</td>
     <td>
       <input type="checkbox" id="checkboxWindowLevel" checked>
+    </td>
+  </tr>
+  <tr>
+    <td>Measurement:</td>
+    <td colspan="2">
+      <button id="buttonMeasure">Add line</button>
+      <span id="measureValue">0</span>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <button id="buttonPanZoom">Pan/Zoom mode</button>
     </td>
   </tr>
   <tr>

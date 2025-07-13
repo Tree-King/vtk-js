@@ -1,12 +1,9 @@
 import '@kitware/vtk.js/favicon';
-
 // Load the rendering pieces we want to use (for both WebGL and WebGPU)
 import '@kitware/vtk.js/Rendering/Profiles/All';
-
 import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
 import vtkAnnotatedCubeActor from '@kitware/vtk.js/Rendering/Core/AnnotatedCubeActor';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
-import vtkHttpDataSetReader from '@kitware/vtk.js/IO/Core/HttpDataSetReader';
 import vtkGenericRenderWindow from '@kitware/vtk.js/Rendering/Misc/GenericRenderWindow';
 import vtkImageData from '@kitware/vtk.js/Common/DataModel/ImageData';
 import vtkImageMapper from '@kitware/vtk.js/Rendering/Core/ImageMapper';
@@ -20,55 +17,64 @@ import vtkOutlineFilter from '@kitware/vtk.js/Filters/General/OutlineFilter';
 import vtkOrientationMarkerWidget from '@kitware/vtk.js/Interaction/Widgets/OrientationMarkerWidget';
 import vtkResliceCursorWidget from '@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget';
 import vtkWidgetManager from '@kitware/vtk.js/Widgets/Core/WidgetManager';
-
+import vtkLineWidget from '@kitware/vtk.js/Widgets/Widgets3D/LineWidget';
 import vtkSphereSource from '@kitware/vtk.js/Filters/Sources/SphereSource';
 import { CaptureOn } from '@kitware/vtk.js/Widgets/Core/WidgetManager/Constants';
-
+import vtkITKHelper from '@kitware/vtk.js/Common/DataModel/ITKHelper';
+import vtkResourceLoader from '@kitware/vtk.js/IO/Core/ResourceLoader';
 import { vec3 } from 'gl-matrix';
 import { SlabMode } from '@kitware/vtk.js/Imaging/Core/ImageReslice/Constants';
-
 import {
   xyzToViewType,
   InteractionMethodsName,
 } from '@kitware/vtk.js/Widgets/Widgets3D/ResliceCursorWidget/Constants';
 import controlPanel from './controlPanel.html';
-
 // Force the loading of HttpDataAccessHelper to support gzip decompression
 import '@kitware/vtk.js/IO/Core/DataAccessHelper/HttpDataAccessHelper';
-
 // ----------------------------------------------------------------------------
 // Define main attributes
 // ----------------------------------------------------------------------------
-
 const viewColors = [
   [1, 0, 0], // sagittal
   [0, 1, 0], // coronal
   [0, 0, 1], // axial
   [0.5, 0.5, 0.5], // 3D
 ];
-
 const viewAttributes = [];
 window.va = viewAttributes;
 const widget = vtkResliceCursorWidget.newInstance();
 window.widget = widget;
+const measureWidgets = [];
 const widgetState = widget.getWidgetState();
 // Set size in CSS pixel space because scaleInPixels defaults to true
 widgetState
   .getStatesWithLabel('sphere')
   .forEach((handle) => handle.setScale1(20));
 const showDebugActors = true;
-
+// --------------------------------------------------------------------------
+// Debug helper
+// --------------------------------------------------------------------------
+/**
+ * Log a message and trigger a breakpoint when developer tools are open.
+ * @param {string} msg
+ */
+function Debug(msg) {
+  if (msg) {
+    // eslint-disable-next-line no-console
+    console.log(msg);
+  }
+  // eslint-disable-next-line no-debugger
+  debugger;
+}
 const appCursorStyles = {
   translateCenter: 'move',
   rotateLine: 'alias',
   translateAxis: 'pointer',
   default: 'default',
 };
-
 // ----------------------------------------------------------------------------
 // Define html structure
 // ----------------------------------------------------------------------------
-
 const container = document.querySelector('body');
 const controlContainer = document.createElement('div');
 controlContainer.innerHTML = controlPanel;
@@ -77,11 +83,12 @@ const checkboxTranslation = document.getElementById('checkboxTranslation');
 const checkboxShowRotation = document.getElementById('checkboxShowRotation');
 const checkboxRotation = document.getElementById('checkboxRotation');
 const checkboxOrthogonality = document.getElementById('checkboxOrthogonality');
-
+const buttonPanZoom = document.getElementById('buttonPanZoom');
+const buttonMeasure = document.getElementById('buttonMeasure');
+const measureValue = document.getElementById('measureValue');
 // ----------------------------------------------------------------------------
 // Setup rendering code
 // ----------------------------------------------------------------------------
-
 /**
  * Function to create synthetic image data with correct dimensions
  * Can be use for debug
@@ -102,18 +109,14 @@ function createSyntheticImageData(dims) {
       }
     }
   }
-
   const da = vtkDataArray.newInstance({
     numberOfComponents: 1,
     values: newArray,
   });
   da.setName('scalars');
-
   imageData.getPointData().setScalars(da);
-
   return imageData;
 }
-
 function createRGBStringFromRGBValues(rgb) {
   if (rgb.length !== 3) {
     return 'rgb(0, 0, 0)';
@@ -122,26 +125,20 @@ function createRGBStringFromRGBValues(rgb) {
     rgb[2] * 255
   ).toString()})`;
 }
-
 const initialPlanesState = { ...widgetState.getPlanes() };
-
 let view3D = null;
-
 for (let i = 0; i < 4; i++) {
   const elementParent = document.createElement('div');
   elementParent.setAttribute('class', 'view');
   elementParent.style.width = '50%';
   elementParent.style.height = '300px';
   elementParent.style.display = 'inline-block';
-
   const element = document.createElement('div');
   element.setAttribute('class', 'view');
   element.style.width = '100%';
   element.style.height = '100%';
   elementParent.appendChild(element);
-
   container.appendChild(elementParent);
-
   const grw = vtkGenericRenderWindow.newInstance();
   grw.setContainer(element);
   grw.resize();
@@ -153,7 +150,6 @@ for (let i = 0; i < 4; i++) {
     widgetManager: vtkWidgetManager.newInstance(),
     orientationWidget: null,
   };
-
   obj.renderer.getActiveCamera().setParallelProjection(true);
   obj.renderer.setBackground(...viewColors[i]);
   obj.renderWindow.addRenderer(obj.renderer);
@@ -185,7 +181,6 @@ for (let i = 0; i < 4; i++) {
       vtkInteractorStyleTrackballCamera.newInstance()
     );
   }
-
   obj.reslice = vtkImageReslice.newInstance();
   obj.reslice.setSlabMode(SlabMode.MEAN);
   obj.reslice.setSlabNumberOfSlices(1);
@@ -198,7 +193,6 @@ for (let i = 0; i < 4; i++) {
   obj.resliceActor.setMapper(obj.resliceMapper);
   obj.sphereActors = [];
   obj.sphereSources = [];
-
   // Create sphere for each 2D views which will be displayed in 3D
   // Define origin, point1 and point2 of the plane used to reslice the volume
   for (let j = 0; j < 3; j++) {
@@ -213,13 +207,11 @@ for (let i = 0; i < 4; i++) {
     obj.sphereActors.push(actor);
     obj.sphereSources.push(sphere);
   }
-
   if (i < 3) {
     viewAttributes.push(obj);
   } else {
     view3D = obj;
   }
-
   // create axes
   const axes = vtkAnnotatedCubeActor.newInstance();
   axes.setDefaultStyle({
@@ -260,7 +252,6 @@ for (let i = 0; i < 4; i++) {
     faceColor: createRGBStringFromRGBValues(viewColors[2]),
     faceRotation: 45,
   });
-
   // create orientation widget
   obj.orientationWidget = vtkOrientationMarkerWidget.newInstance({
     actor: axes,
@@ -273,7 +264,6 @@ for (let i = 0; i < 4; i++) {
   obj.orientationWidget.setViewportSize(0.15);
   obj.orientationWidget.setMinPixelSize(100);
   obj.orientationWidget.setMaxPixelSize(300);
-
   // create sliders
   if (i < 3) {
     const slider = document.createElement('input');
@@ -284,7 +274,6 @@ for (let i = 0; i < 4; i++) {
     slider.style.width = '100%';
     elementParent.appendChild(slider);
     obj.slider = slider;
-
     slider.addEventListener('change', (ev) => {
       const newDistanceToP1 = ev.target.value;
       const dirProj = widget.getWidgetState().getPlanes()[
@@ -307,11 +296,9 @@ for (let i = 0; i < 4; i++) {
     });
   }
 }
-
 // ----------------------------------------------------------------------------
 // Load image
 // ----------------------------------------------------------------------------
-
 function updateReslice(
   interactionContext = {
     viewType: '',
@@ -325,6 +312,7 @@ function updateReslice(
     slider: null,
   }
 ) {
+  Debug(`updateReslice ${interactionContext.viewType}`);
   const modified = widget.updateReslicePlane(
     interactionContext.reslice,
     interactionContext.viewType
@@ -337,7 +325,6 @@ function updateReslice(
     interactionContext.sphereSources[0].setCenter(planeSource.getOrigin());
     interactionContext.sphereSources[1].setCenter(planeSource.getPoint1());
     interactionContext.sphereSources[2].setCenter(planeSource.getPoint2());
-
     if (interactionContext.slider) {
       const planeExtremities = widget.getPlaneExtremities(
         interactionContext.viewType
@@ -365,104 +352,103 @@ function updateReslice(
   view3D.renderWindow.render();
   return modified;
 }
-
-const reader = vtkHttpDataSetReader.newInstance({ fetchGzip: true });
-reader.setUrl(`${__BASE_PATH__}/data/volume/LIDC2.vti`).then(() => {
-  reader.loadData().then(() => {
-    const image = reader.getOutputData();
-    widget.setImage(image);
-
-    // Create image outline in 3D view
-    const outline = vtkOutlineFilter.newInstance();
-    outline.setInputData(image);
-    const outlineMapper = vtkMapper.newInstance();
-    outlineMapper.setInputData(outline.getOutputData());
-    const outlineActor = vtkActor.newInstance();
-    outlineActor.setMapper(outlineMapper);
-    view3D.renderer.addActor(outlineActor);
-
-    viewAttributes.forEach((obj, i) => {
-      obj.reslice.setInputData(image);
-      obj.renderer.addActor(obj.resliceActor);
-      view3D.renderer.addActor(obj.resliceActor);
-      obj.sphereActors.forEach((actor) => {
-        obj.renderer.addActor(actor);
-        view3D.renderer.addActor(actor);
-      });
-      const reslice = obj.reslice;
-      const viewType = xyzToViewType[i];
-
-      viewAttributes
-        // No need to update plane nor refresh when interaction
-        // is on current view. Plane can't be changed with interaction on current
-        // view. Refreshs happen automatically with `animation`.
-        // Note: Need to refresh also the current view because of adding the mouse wheel
-        // to change slicer
-        .forEach((v) => {
-          // Store the FocalPoint offset before "interacting".
-          // The offset may have been changed externally when manipulating the camera
-          // or interactorstyle.
-          v.widgetInstance.onStartInteractionEvent(() => {
-            updateReslice({
-              viewType,
-              reslice,
-              actor: obj.resliceActor,
-              renderer: obj.renderer,
-              resetFocalPoint: false,
-              computeFocalPointOffset: true,
-              sphereSources: obj.sphereSources,
-              slider: obj.slider,
-            });
-          });
-
-          // Interactions in other views may change current plane
-          v.widgetInstance.onInteractionEvent(
-            // canUpdateFocalPoint: Boolean which defines if the focal point can be updated because
-            // the current interaction is a rotation
-            (interactionMethodName) => {
-              const canUpdateFocalPoint =
-                interactionMethodName === InteractionMethodsName.RotateLine;
-              const activeViewType = widget
-                .getWidgetState()
-                .getActiveViewType();
-              const computeFocalPointOffset =
-                activeViewType === viewType || !canUpdateFocalPoint;
-              updateReslice({
-                viewType,
-                reslice,
-                actor: obj.resliceActor,
-                renderer: obj.renderer,
-                resetFocalPoint: false,
-                computeFocalPointOffset,
-                sphereSources: obj.sphereSources,
-                slider: obj.slider,
-              });
-            }
-          );
-        });
-
-      updateReslice({
-        viewType,
-        reslice,
-        actor: obj.resliceActor,
-        renderer: obj.renderer,
-        resetFocalPoint: true, // At first initilization, center the focal point to the image center
-        computeFocalPointOffset: true, // Allow to compute the current offset between display reslice center and display focal point
-        sphereSources: obj.sphereSources,
-        slider: obj.slider,
-      });
-      obj.interactor.render();
+function useImage(image) {
+  Debug('useImage');
+  widget.setImage(image);
+  const outline = vtkOutlineFilter.newInstance();
+  outline.setInputData(image);
+  const outlineMapper = vtkMapper.newInstance();
+  outlineMapper.setInputData(outline.getOutputData());
+  const outlineActor = vtkActor.newInstance();
+  outlineActor.setMapper(outlineMapper);
+  view3D.renderer.addActor(outlineActor);
+  viewAttributes.forEach((obj, i) => {
+    obj.reslice.setInputData(image);
+    obj.renderer.addActor(obj.resliceActor);
+    view3D.renderer.addActor(obj.resliceActor);
+    obj.sphereActors.forEach((actor) => {
+      obj.renderer.addActor(actor);
+      view3D.renderer.addActor(actor);
     });
-
-    view3D.renderer.resetCamera();
-    view3D.renderer.resetCameraClippingRange();
-
-    // set max number of slices to slider.
-    const maxNumberOfSlices = vec3.length(image.getDimensions());
-    document.getElementById('slabNumber').max = maxNumberOfSlices;
+    const reslice = obj.reslice;
+    const viewType = xyzToViewType[i];
+    viewAttributes.forEach((v) => {
+      v.widgetInstance.onStartInteractionEvent(() => {
+        updateReslice({
+          viewType,
+          reslice,
+          actor: obj.resliceActor,
+          renderer: obj.renderer,
+          resetFocalPoint: false,
+          computeFocalPointOffset: true,
+          sphereSources: obj.sphereSources,
+          slider: obj.slider,
+        });
+      });
+      v.widgetInstance.onInteractionEvent((interactionMethodName) => {
+        const canUpdateFocalPoint =
+          interactionMethodName === InteractionMethodsName.RotateLine;
+        const activeViewType = widget.getWidgetState().getActiveViewType();
+        const computeFocalPointOffset =
+          activeViewType === viewType || !canUpdateFocalPoint;
+        updateReslice({
+          viewType,
+          reslice,
+          actor: obj.resliceActor,
+          renderer: obj.renderer,
+          resetFocalPoint: false,
+          computeFocalPointOffset,
+          sphereSources: obj.sphereSources,
+          slider: obj.slider,
+        });
+      });
+    });
+    updateReslice({
+      viewType,
+      reslice,
+      actor: obj.resliceActor,
+      renderer: obj.renderer,
+      resetFocalPoint: true,
+      computeFocalPointOffset: true,
+      sphereSources: obj.sphereSources,
+      slider: obj.slider,
+    });
+    obj.interactor.render();
   });
+  view3D.renderer.resetCamera();
+  view3D.renderer.resetCameraClippingRange();
+  const maxNumberOfSlices = vec3.length(image.getDimensions());
+  document.getElementById('slabNumber').max = maxNumberOfSlices;
+}
+const dicomInput = document.getElementById('dicomFiles');
+const loadButton = document.getElementById('loadDicom');
+// Users can load their own DICOM files rather than fetching an online sample.
+const itkLoaded = vtkResourceLoader
+  .loadScript(
+    'https://cdn.jsdelivr.net/npm/itk-wasm@1.0.0-b.8/dist/umd/itk-wasm.js'
+  )
+  .then(() => Debug('itk-wasm loaded'));
+async function loadDicomFiles(files) {
+  Debug(`loadDicomFiles ${files.length}`);
+  const buffers = await Promise.all(
+    Array.from(files).map((f) => f.arrayBuffer())
+  );
+  Debug(`buffers read ${buffers.length}`);
+  const { image: itkImage } = await window.itk.readImageDICOMArrayBufferSeries(
+    buffers
+  );
+  Debug('itkImage ready');
+  const vtkImage = vtkITKHelper.convertItkToVtkImage(itkImage);
+  Debug('vtkImage converted');
+  useImage(vtkImage);
+}
+loadButton.addEventListener('click', () => {
+  if (dicomInput.files.length) {
+    itkLoaded.then(() => loadDicomFiles(dicomInput.files));
+  } else {
+    console.warn('No DICOM files selected');
+  }
 });
-
 // ----------------------------------------------------------------------------
 // Define panel interactions
 // ----------------------------------------------------------------------------
@@ -483,13 +469,11 @@ function updateViews() {
   view3D.renderer.resetCamera();
   view3D.renderer.resetCameraClippingRange();
 }
-
 checkboxTranslation.addEventListener('change', (ev) => {
   viewAttributes.forEach((obj) =>
     obj.widgetInstance.setEnableTranslation(checkboxTranslation.checked)
   );
 });
-
 checkboxShowRotation.addEventListener('change', (ev) => {
   widgetState
     .getStatesWithLabel('rotation')
@@ -501,7 +485,6 @@ checkboxShowRotation.addEventListener('change', (ev) => {
   checkboxRotation.disabled = !checkboxShowRotation.checked;
   checkboxRotation.dispatchEvent(new Event('change'));
 });
-
 checkboxRotation.addEventListener('change', (ev) => {
   viewAttributes.forEach((obj) =>
     obj.widgetInstance.setEnableRotation(checkboxRotation.checked)
@@ -509,13 +492,11 @@ checkboxRotation.addEventListener('change', (ev) => {
   checkboxOrthogonality.disabled = !checkboxRotation.checked;
   checkboxOrthogonality.dispatchEvent(new Event('change'));
 });
-
 checkboxOrthogonality.addEventListener('change', (ev) => {
   viewAttributes.forEach((obj) =>
     obj.widgetInstance.setKeepOrthogonality(checkboxOrthogonality.checked)
   );
 });
-
 const checkboxScaleInPixels = document.getElementById('checkboxScaleInPixels');
 checkboxScaleInPixels.addEventListener('change', (ev) => {
   widget.setScaleInPixels(checkboxScaleInPixels.checked);
@@ -523,7 +504,6 @@ checkboxScaleInPixels.addEventListener('change', (ev) => {
     obj.interactor.render();
   });
 });
-
 const opacity = document.getElementById('opacity');
 opacity.addEventListener('input', (ev) => {
   const opacityValue = document.getElementById('opacityValue');
@@ -536,7 +516,6 @@ opacity.addEventListener('input', (ev) => {
     obj.interactor.render();
   });
 });
-
 const optionSlabModeMin = document.getElementById('slabModeMin');
 optionSlabModeMin.value = SlabMode.MIN;
 const optionSlabModeMax = document.getElementById('slabModeMax');
@@ -552,7 +531,6 @@ selectSlabMode.addEventListener('change', (ev) => {
   });
   updateViews();
 });
-
 const sliderSlabNumberofSlices = document.getElementById('slabNumber');
 sliderSlabNumberofSlices.addEventListener('change', (ev) => {
   const trSlabNumberValue = document.getElementById('slabNumberValue');
@@ -562,14 +540,12 @@ sliderSlabNumberofSlices.addEventListener('change', (ev) => {
   });
   updateViews();
 });
-
 const buttonReset = document.getElementById('buttonReset');
 buttonReset.addEventListener('click', () => {
   widgetState.setPlanes({ ...initialPlanesState });
   widget.setCenter(widget.getWidgetState().getImage().getCenter());
   updateViews();
 });
-
 const selectInterpolationMode = document.getElementById('selectInterpolation');
 selectInterpolationMode.addEventListener('change', (ev) => {
   viewAttributes.forEach((obj) => {
@@ -577,7 +553,6 @@ selectInterpolationMode.addEventListener('change', (ev) => {
   });
   updateViews();
 });
-
 const checkboxWindowLevel = document.getElementById('checkboxWindowLevel');
 checkboxWindowLevel.addEventListener('change', (ev) => {
   viewAttributes.forEach((obj, index) => {
@@ -588,5 +563,38 @@ checkboxWindowLevel.addEventListener('change', (ev) => {
           : vtkInteractorStyleTrackballCamera.newInstance()
       );
     }
+  });
+});
+
+let panZoomMode = false;
+buttonPanZoom.addEventListener('click', () => {
+  panZoomMode = !panZoomMode;
+  buttonPanZoom.textContent = panZoomMode ? 'Exit Pan/Zoom' : 'Pan/Zoom mode';
+  viewAttributes.forEach((obj) => {
+    if (panZoomMode) {
+      obj.widgetManager.disablePicking();
+      obj.interactor.setInteractorStyle(
+        vtkInteractorStyleTrackballCamera.newInstance()
+      );
+    } else {
+      obj.widgetManager.enablePicking();
+      obj.interactor.setInteractorStyle(vtkInteractorStyleImage.newInstance());
+    }
+  });
+});
+
+buttonMeasure.addEventListener('click', () => {
+  // remove existing measurement widgets
+  measureWidgets.forEach((mw) => mw.manager.removeWidget(mw.widget));
+  measureWidgets.length = 0;
+
+  viewAttributes.forEach((obj, i) => {
+    const lineWidget = vtkLineWidget.newInstance();
+    obj.widgetManager.addWidget(lineWidget, xyzToViewType[i]);
+    obj.widgetManager.grabFocus(lineWidget);
+    measureWidgets.push({ manager: obj.widgetManager, widget: lineWidget });
+    lineWidget.onEndInteractionEvent(() => {
+      measureValue.textContent = lineWidget.getDistance().toFixed(2);
+    });
   });
 });
